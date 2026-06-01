@@ -41,31 +41,20 @@ static void *aac_encoder_create(uint32_t sample_rate,
     codec->profile = aot;
     codec->sample_size = samples_per_frame;
 
-    unsigned char *ppBuffer = NULL;
-    unsigned long pSizeOfDecoderSpecificInfo = 0;
-    faacEncGetDecoderSpecificInfo(encoder, &ppBuffer, &pSizeOfDecoderSpecificInfo);
-
-    if (ppBuffer && pSizeOfDecoderSpecificInfo > 0)
-    {
-        codec->extra_data_size = pSizeOfDecoderSpecificInfo;
-        codec->extra_data = (char *)malloc(codec->extra_data_size);
-        if (codec->extra_data)
-        {
-            memcpy(codec->extra_data, ppBuffer, codec->extra_data_size);
-        }
-        else
-        {
-            printf("Failed to allocate memory for extra data\n");
-            faacEncClose(encoder);
-            free(codec);
-            return NULL;
-        }
+    // Build AAC-LC AudioSpecificConfig manually.  FAAC promotes to HE-AAC
+    // (SBR, audioObjectType 5) at low sample rates like 8 kHz, producing
+    // mp4a.40.5 which Chrome MSE rejects.  The core frames are still AAC-LC
+    // (config->aacObjectType = LOW), so the ASC must report audioObjectType 2.
+    static const int sr_table[] = {96000,88200,64000,48000,44100,32000,
+                                   24000,22050,16000,12000,11025,8000,7350};
+    uint8_t freq_idx = 0x0F;
+    for (int i = 0; i < 13; i++) {
+        if ((int)sample_rate == sr_table[i]) { freq_idx = (uint8_t)i; break; }
     }
-    else
-    {
-        codec->extra_data_size = 0;
-        codec->extra_data = NULL;
-    }
+    codec->extra_data_size = 2;
+    codec->extra_data = (char *)malloc(2);
+    codec->extra_data[0] = (char)((aot << 3) | (freq_idx >> 1));
+    codec->extra_data[1] = (char)(((freq_idx & 1) << 7) | ((channels & 0x0F) << 3));
     return codec;
 }
 
