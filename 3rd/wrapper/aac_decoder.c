@@ -5,7 +5,7 @@ static void *aac_decoder_create(uint8_t *adts, uint32_t adts_size, uint8_t *audi
 {
     assert(adts != NULL || audio_config != NULL);
 
-    auto handle = NeAACDecOpen();
+    NeAACDecHandle handle = NeAACDecOpen();
 
     NeAACDecConfigurationPtr config = NeAACDecGetCurrentConfiguration(handle);
     config->outputFormat = FAAD_FMT_16BIT;
@@ -29,7 +29,7 @@ static void *aac_decoder_create(uint8_t *adts, uint32_t adts_size, uint8_t *audi
         code = NeAACDecInit2(handle, audio_config, config_size, &sample_size, &channels);
     }
 
-    audio_codec_t *decoder = (audio_codec_t *)calloc(sizeof(audio_codec_t), 0);
+    audio_codec_t *decoder = (audio_codec_t *)calloc(1, sizeof(audio_codec_t));
     decoder->handle = handle;
     decoder->sample_rate = sample_size;
     decoder->channels = channels;

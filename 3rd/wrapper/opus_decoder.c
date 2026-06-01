@@ -13,7 +13,7 @@ static void *opus_decoder_create2(int sample_rate, int channels)
         return NULL;
     }
 
-    audio_codec_t *codec = (audio_codec_t *)calloc(sizeof(audio_codec_t), 0);
+    audio_codec_t *codec = (audio_codec_t *)calloc(1, sizeof(audio_codec_t));
     codec->handle = dec;
     codec->sample_rate = sample_rate;
     codec->channels = channels;
