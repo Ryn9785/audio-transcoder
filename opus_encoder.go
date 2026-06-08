@@ -22,6 +22,7 @@ type OpusEncoder struct {
 	channels        int
 	pcmBuf          *PCMBuffer
 	sampleSize      int // length is frame_size*channels*sizeof(opus_int16)
+	frameSamples    int // per-channel samples per Opus frame (20ms), derived from sample rate
 	frameDurationMS int
 	pktData         []byte
 }
@@ -33,7 +34,7 @@ func (e *OpusEncoder) Encode(pcm []byte, cb func([]byte)) (int, error) {
 	e.pcmBuf.ReadTo(func(frame []byte) {
 		n := C.opus_encoder_encode(e.enc,
 			(*C.uint8_t)(&frame[0]),
-			C.int(OpusFrameSize),
+			C.int(e.frameSamples),
 			(*C.uint8_t)(&e.pktData[0]),
 			C.int(len(e.pktData)))
 
@@ -65,9 +66,15 @@ func (e *OpusEncoder) Create(sampleRate int, channels int) (int, error) {
 
 	e.sampleRate = sampleRate
 	e.channels = channels
-	e.sampleSize = OpusFrameSize * channels * 2 // 每个样本为 16 位
+	// An Opus frame must be a valid duration for the encoder's sample rate (max 60ms).
+	// Use 20ms frames: 8000->160, 12000->240, 16000->320, 24000->480, 48000->960 samples/ch.
+	// The old hardcoded OpusFrameSize(960) was only valid at 48kHz; at 8/12kHz it was
+	// 120/80ms, exceeding Opus's 60ms max, so opus_encode rejected every frame and emitted
+	// nothing — silence for JT1078 AAC voice devices (which are 8kHz mono).
+	e.frameSamples = sampleRate / 50
+	e.sampleSize = e.frameSamples * channels * 2 // 每个样本为 16 位
 	e.pcmBuf = NewPCMBuffer(e.sampleSize)
-	e.frameDurationMS = 1000 * OpusFrameSize / sampleRate /* / channels*/
+	e.frameDurationMS = 1000 * e.frameSamples / sampleRate /* / channels*/
 	e.pktData = make([]byte, sampleRate*channels)
 	return e.sampleSize, nil
 }
