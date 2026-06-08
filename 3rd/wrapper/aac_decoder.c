@@ -9,7 +9,12 @@ static void *aac_decoder_create(uint8_t *adts, uint32_t adts_size, uint8_t *audi
 
     NeAACDecConfigurationPtr config = NeAACDecGetCurrentConfiguration(handle);
     config->outputFormat = FAAD_FMT_16BIT;
-    // config->downMatrix = 1;
+    // JT1078 audio is plain AAC-LC (typically 8kHz mono). faad2 otherwise applies
+    // implicit SBR upsampling (doubling the rate) and Parametric Stereo, emitting e.g.
+    // 16kHz/2ch PCM that no longer matches the stream's declared rate/channels — the
+    // downstream Opus/AAC encoder then reinterprets it and the audio becomes garbage.
+    config->dontUpSampleImplicitSBR = 1;
+    config->downMatrix = 1;
 
     if (!NeAACDecSetConfiguration(handle, config))
     {
@@ -60,6 +65,22 @@ static int aac_decoder_decode(void *decoder, uint8_t *frame, uint32_t size, uint
 
     if (sample_buffer && pcm)
     {
+        // faad2 can emit Parametric-Stereo 2ch PCM from a mono AAC-LC stream (JT1078 audio
+        // is mono voice). Downmix back to mono so the output matches the stream's declared
+        // mono layout; otherwise the interleaved stereo is fed to a mono encoder as twice as
+        // many samples and the audio is garbled.
+        if (info.channels == 2)
+        {
+            const int16_t *s = (const int16_t *)sample_buffer;
+            int16_t *d = (int16_t *)pcm;
+            unsigned long frames = info.samples / 2; // samples per channel
+            for (unsigned long i = 0; i < frames; i++)
+            {
+                d[i] = (int16_t)(((int)s[2 * i] + (int)s[2 * i + 1]) / 2);
+            }
+            return (int)(frames * 2); // mono 16-bit bytes
+        }
+
         size_t pcm_size = info.samples * 2; // 16位PCM
         memcpy(pcm, sample_buffer, pcm_size);
         return pcm_size;
